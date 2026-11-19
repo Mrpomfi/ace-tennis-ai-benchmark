@@ -9,9 +9,26 @@ const CLIP_MODEL='Xenova/clip-vit-base-patch32';
 
 input.addEventListener('change',()=>{
   const f=input.files?.[0]; if(!f)return;
+  run.disabled=true;
+  $('videoInfo').textContent='Video wird geladen …';
+  say('Video wird vorbereitet …');
   if(objectUrl)URL.revokeObjectURL(objectUrl);
-  objectUrl=URL.createObjectURL(f);video.src=objectUrl;video.classList.remove('hidden');
-  video.onloadedmetadata=()=>{$('videoInfo').textContent=`${f.name} · ${video.videoWidth}×${video.videoHeight} · ${video.duration.toFixed(2)} s`;run.disabled=false;};
+  objectUrl=URL.createObjectURL(f);
+  video.pause();
+  video.removeAttribute('src');
+  video.load();
+  video.onloadedmetadata=()=>{
+    $('videoInfo').textContent=`${f.name} · `${video.videoWidth}×`${video.videoHeight} · `${video.duration.toFixed(2)} s`;
+    video.classList.remove('hidden');
+    run.disabled=false;
+    say('Video erfolgreich geladen. Der Vergleich kann gestartet werden.');
+  };
+  video.onerror=()=>{
+    $('videoInfo').textContent='Video konnte nicht gelesen werden. Bitte MP4 oder MOV erneut auswählen.';
+    say('Fehler beim Laden des Videos (Safari: '+(video.error?.code||'unbekannt')+').');
+  };
+  video.src=objectUrl;
+  video.load();
 });
 $('baseThreshold').addEventListener('input',e=>$('baseThresholdValue').textContent=Number(e.target.value).toFixed(3).replace('.',','));
 $('worldThreshold').addEventListener('input',e=>$('worldThresholdValue').textContent=Number(e.target.value).toFixed(2).replace('.',','));
