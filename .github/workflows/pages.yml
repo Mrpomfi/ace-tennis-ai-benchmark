@@ -38,9 +38,8 @@ jobs:
           urllib.request.urlretrieve(url, "courtside-cv-v1.pt")
           model = YOLO("courtside-cv-v1.pt")
           exported = model.export(format="onnx", imgsz=640, opset=12, simplify=False, dynamic=False, nms=False, half=False)
-          import shutil
-          shutil.copyfile(str(exported), "courtside-cv-v1.onnx")
           print("Exported:", exported)
+          assert str(exported) == "courtside-cv-v1.onnx", f"Unexpected ONNX path: {exported}"
           PY
       - name: Configure Pages
         uses: actions/configure-pages@v5
