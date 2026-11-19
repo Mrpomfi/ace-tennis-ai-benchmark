@@ -23,6 +23,26 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Set up Python for model export
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Export CourtSide CV v1 to ONNX
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ultralytics
+          python - <<'PY'
+          import urllib.request
+          from ultralytics import YOLO
+          url = "https://huggingface.co/Davidsv/CourtSide-Computer-Vision-v1/resolve/main/model.pt"
+          urllib.request.urlretrieve(url, "courtside-cv-v1.pt")
+          model = YOLO("courtside-cv-v1.pt")
+          exported = model.export(format="onnx", imgsz=640, opset=12, simplify=False, dynamic=False, nms=False, half=False)
+          import shutil
+          shutil.copyfile(str(exported), "courtside-cv-v1.onnx")
+          print("Exported:", exported)
+          PY
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload site
