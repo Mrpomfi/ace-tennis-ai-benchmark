@@ -20,8 +20,11 @@
 <section class="card">
 <h2>2 · Test starten</h2>
 <p class="muted">Für einen fairen Vergleich werden bis zu 24 gleichmäßig verteilte Frames aus dem Video verwendet. Auf dem iPhone kann das Laden der Modelle einige Minuten dauern.</p>
-<label for="threshold">Mindest-Konfidenz: <span id="thresholdValue">0,15</span></label>
-<input id="threshold" type="range" min=".05" max=".65" step=".05" value=".15" style="width:100%">
+<label for="baseThreshold">CourtSide – Mindest-Konfidenz: <span id="baseThresholdValue">0,005</span></label>
+<input id="baseThreshold" type="range" min=".001" max=".20" step=".001" value=".005" style="width:100%">
+<p class="small">Niedrige Schwellen sind hier absichtlich erlaubt: Die Haupt-App berücksichtigt beim Schlägermodell auch sehr schwache Rohscores und prüft sie anschließend räumlich.</p>
+<label for="worldThreshold">YOLO-World – Mindest-Konfidenz: <span id="worldThresholdValue">0,35</span></label>
+<input id="worldThreshold" type="range" min=".10" max=".90" step=".05" value=".35" style="width:100%">
 <button id="run" disabled>Beide Modelle vergleichen</button>
 <progress id="progress" max="100" value="0"></progress>
 <p id="status" role="status">Bitte zuerst ein Video auswählen.</p>
@@ -34,7 +37,8 @@
 <div class="metric"><span class="small">CourtSide Ø Zeit/Frame</span><b id="baseTime">–</b></div>
 <div class="metric"><span class="small">YOLO-World Ø Zeit/Frame</span><b id="worldTime">–</b></div>
 </div>
-<p class="small">Trefferzahlen sind zunächst Rohdetektionen, keine Precision-/Recall-Werte. Dafür müssen die tatsächlichen Schlägerpositionen der Frames manuell als Referenz markiert werden.</p>
+<p class="small">Trefferzahlen sind Rohdetektionen nach Konfidenzfilter und NMS, keine Precision-/Recall-Werte. Dafür müssen die tatsächlichen Schlägerpositionen der Frames manuell als Referenz markiert werden.</p>
+<p class="small" id="diagnostics" style="white-space:pre-wrap;overflow-wrap:anywhere">Diagnose erscheint nach dem Test.</p>
 <div id="frames"></div>
 </section>
 <section class="card">
