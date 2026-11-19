@@ -13,7 +13,7 @@ input.addEventListener('change',()=>{
   objectUrl=URL.createObjectURL(f);video.src=objectUrl;video.classList.remove('hidden');
   video.onloadedmetadata=()=>{$('videoInfo').textContent=`${f.name} · ${video.videoWidth}×${video.videoHeight} · ${video.duration.toFixed(2)} s`;run.disabled=false;};
 });
-$('threshold').addEventListener('input',e=>$('thresholdValue').textContent=Number(e.target.value).toFixed(2).replace('.',','));
+$('baseThreshold').addEventListener('input',e=>$('baseThresholdValue').textContent=Number(e.target.value).toFixed(3).replace('.',','));\n$('worldThreshold').addEventListener('input',e=>$('worldThresholdValue').textContent=Number(e.target.value).toFixed(2).replace('.',','));
 function say(s){status.textContent=s}
 function wait(ms){return new Promise(r=>setTimeout(r,ms))}
 async function seekVideo(t){
@@ -61,30 +61,60 @@ function makeInput(canvas){
 }
 function sigmoid(x){return 1/(1+Math.exp(-x))}
 function iou(a,b){const x1=Math.max(a.x,b.x),y1=Math.max(a.y,b.y),x2=Math.min(a.x+a.w,b.x+b.w),y2=Math.min(a.y+a.h,b.y+b.h);const inter=Math.max(0,x2-x1)*Math.max(0,y2-y1);return inter/(a.w*a.h+b.w*b.h-inter+1e-9)}
-function nms(boxes,limit=.45){boxes.sort((a,b)=>b.score-a.score);const keep=[];for(const b of boxes){if(keep.every(k=>iou(k,b)<limit))keep.push(b);if(keep.length>=30)break;}return keep}
+function nms(boxes,limit=.45,maxDetections=100){
+ boxes.sort((a,b)=>b.score-a.score);const keep=[];
+ for(const b of boxes){if(keep.every(k=>iou(k,b)<limit))keep.push(b);if(keep.length>=maxDetections)break;}
+ return keep;
+}
 function mapBox(x1,y1,x2,y2,score,meta,canvas){
  const {scale,ox,oy}=meta;const x=Math.max(0,(x1-ox)/scale),y=Math.max(0,(y1-oy)/scale),r=Math.min(canvas.width,(x2-ox)/scale),b=Math.min(canvas.height,(y2-oy)/scale);
- if(r<=x||b<=y)return null;return{x:x/canvas.width,y:y/canvas.height,w:(r-x)/canvas.width,h:(b-y)/canvas.height,score};
+ if(![x,y,r,b,score].every(Number.isFinite)||r<=x||b<=y)return null;
+ return{x:x/canvas.width,y:y/canvas.height,w:(r-x)/canvas.width,h:(b-y)/canvas.height,score};
 }
 function parseBase(out,meta,canvas,threshold){
- const t=out[Object.keys(out)[0]],v=t.data,d=t.dims,boxes=[];
- if(d.length===3&&d[2]===6){for(let i=0;i<d[1];i++){const j=i*6,score=v[j+4],cls=Math.round(v[j+5]);if(cls===0&&score>=threshold){const b=mapBox(v[j],v[j+1],v[j+2],v[j+3],score,meta,canvas);if(b)boxes.push(b)}}}
- else if(d.length===3&&d[1]>=5&&d[1]<=128){const ch=d[1],n=d[2];for(let i=0;i<n;i++){let best=-1,cls=-1;for(let c=4;c<ch;c++){if(v[c*n+i]>best){best=v[c*n+i];cls=c-4}}if(cls===0&&best>=threshold){const cx=v[i],cy=v[n+i],w=v[2*n+i],h=v[3*n+i],b=mapBox(cx-w/2,cy-h/2,cx+w/2,cy+h/2,best,meta,canvas);if(b)boxes.push(b)}}}
- else throw Error('Unbekanntes CourtSide-Ausgabeformat: '+d.join('×'));
- return nms(boxes);
+ const name=Object.keys(out)[0],t=out[name],v=t.data,d=t.dims,raw=[],diag={output:name+' ['+d.join(' × ')+']',format:'unbekannt',maxRacketScore:0,rawRacketCandidates:0};
+ if(d.length!==3)throw Error('Unbekanntes CourtSide-Ausgabeformat: '+d.join('×'));
+ const a=d[1],b=d[2];
+ if(b===6){diag.format='NMS [1, detections, 6]';for(let i=0;i<a;i++){const j=i*6,score=Number(v[j+4]),cls=Math.round(Number(v[j+5]));if(cls!==0||!Number.isFinite(score)||score<=0)continue;diag.maxRacketScore=Math.max(diag.maxRacketScore,score);diag.rawRacketCandidates++;if(score>=threshold){const box=mapBox(v[j],v[j+1],v[j+2],v[j+3],score,meta,canvas);if(box)raw.push(box);}}}
+ else if(a===6){diag.format='NMS [1, 6, detections]';for(let i=0;i<b;i++){const score=Number(v[4*b+i]),cls=Math.round(Number(v[5*b+i]));if(cls!==0||!Number.isFinite(score)||score<=0)continue;diag.maxRacketScore=Math.max(diag.maxRacketScore,score);diag.rawRacketCandidates++;if(score>=threshold){const box=mapBox(v[i],v[b+i],v[2*b+i],v[3*b+i],score,meta,canvas);if(box)raw.push(box);}}}
+ else {
+  let channelsFirst;
+  if(a>=5&&a<=64)channelsFirst=true;
+  else if(b>=5&&b<=64)channelsFirst=false;
+  else throw Error('CourtSide-Ausgabeformat nicht unterstützt: '+d.join('×'));
+  const channels=channelsFirst?a:b,count=channelsFirst?b:a;
+  diag.format=channelsFirst?'YOLO raw [1, channels, candidates]':'YOLO raw [1, candidates, channels]';
+  for(let i=0;i<count;i++){
+   const get=ch=>channelsFirst?v[ch*count+i]:v[i*channels+ch];
+   let best=-Infinity,cls=-1;for(let ch=4;ch<channels;ch++){const score=Number(get(ch));if(Number.isFinite(score)&&score>best){best=score;cls=ch-4;}}
+   if(cls!==0||!Number.isFinite(best))continue;
+   diag.maxRacketScore=Math.max(diag.maxRacketScore,best);diag.rawRacketCandidates++;
+   if(best<threshold)continue;
+   const cx=Number(get(0)),cy=Number(get(1)),w=Number(get(2)),h=Number(get(3));
+   const box=mapBox(cx-w/2,cy-h/2,cx+w/2,cy+h/2,best,meta,canvas);if(box)raw.push(box);
+  }
+ }
+ diag.afterThreshold=raw.length;const boxes=nms(raw,.45,100);diag.afterNms=boxes.length;
+ return {boxes,diagnostic:diag};
 }
 function parseWorld(out,meta,canvas,threshold){
- const t=out[Object.keys(out)[0]],v=t.data,d=t.dims,boxes=[];
+ const name=Object.keys(out)[0],t=out[name],v=t.data,d=t.dims,raw=[],diag={output:name+' ['+d.join(' × ')+']',format:'raw YOLO-World',maxScore:0,rawCandidates:0};
  if(d.length!==3)throw Error('Unbekanntes YOLO-World-Ausgabeformat: '+d.join('×'));
- const channelsFirst=d[1]<d[2],channels=channelsFirst?d[1]:d[2],n=channelsFirst?d[2]:d[1];
- if(channels<5)throw Error('YOLO-World-Ausgabe enthält keine Klassenwerte.');
- for(let i=0;i<n;i++){
-  const get=c=>channelsFirst?v[c*n+i]:v[i*channels+c];
-  let score=0;for(let c=4;c<channels;c++)score=Math.max(score,sigmoid(get(c)));
-  if(score<threshold)continue;
-  const cx=get(0),cy=get(1),w=get(2),h=get(3),b=mapBox(cx-w/2,cy-h/2,cx+w/2,cy+h/2,score,meta,canvas);if(b)boxes.push(b);
+ const a=d[1],b=d[2];
+ let channelsFirst;
+ if(a>=5&&a<=256&&b>a)channelsFirst=true;
+ else if(b>=5&&b<=256&&a>b)channelsFirst=false;
+ else throw Error('YOLO-World-Kanaldimension nicht eindeutig: '+d.join('×'));
+ const channels=channelsFirst?a:b,count=channelsFirst?b:a;
+ for(let i=0;i<count;i++){
+  const get=ch=>channelsFirst?v[ch*count+i]:v[i*channels+ch];
+  let score=0;for(let ch=4;ch<channels;ch++)score=Math.max(score,sigmoid(Number(get(ch))));
+  diag.maxScore=Math.max(diag.maxScore,score);if(score<threshold)continue;diag.rawCandidates++;
+  const cx=Number(get(0)),cy=Number(get(1)),w=Number(get(2)),h=Number(get(3));
+  const box=mapBox(cx-w/2,cy-h/2,cx+w/2,cy+h/2,score,meta,canvas);if(box)raw.push(box);
  }
- return nms(boxes);
+ diag.afterThreshold=raw.length;const boxes=nms(raw,.45,100);diag.afterNms=boxes.length;
+ return {boxes,diagnostic:diag};
 }
 async function loadOrt(){
  if(!window.ort?.InferenceSession)throw Error('ONNX Runtime konnte nicht geladen werden.');
@@ -108,7 +138,7 @@ async function runTest(){
  try{
   say('Video-Frames werden vorbereitet …');frames=await extractFrames(24);
   await loadOrt();
-  const threshold=Number($('threshold').value),baseTimes=[],worldTimes=[],baseResults=[];
+  const baseThreshold=Number($('baseThreshold').value),worldThreshold=Number($('worldThreshold').value),baseTimes=[],worldTimes=[],baseResults=[],baseDiagnostics=[],worldDiagnostics=[];
   let baseTotal=0,worldTotal=0;
   say('CourtSide-Modell wird geladen …');
   const baseBytes=await (await fetch(BASE)).arrayBuffer();
@@ -117,7 +147,7 @@ async function runTest(){
    const f=frames[i],meta=makeInput(f.canvas),t0=performance.now();
    if(base.inputNames.length!==1)throw Error('CourtSide erwartet einen einzelnen Bildeingang; gefunden: '+base.inputNames.join(', '));
    const out=await base.run({[base.inputNames[0]]:meta.tensor});
-   const boxes=parseBase(out,meta,f.canvas,threshold);baseResults.push(boxes);
+   const parsed=parseBase(out,meta,f.canvas,baseThreshold);baseResults.push(parsed.boxes);baseDiagnostics.push(parsed.diagnostic);
    baseTimes.push(performance.now()-t0);baseTotal+=boxes.length;
    progress.value=Math.round((i+1)/(frames.length*2)*100);
    say(`CourtSide: Frame ${i+1}/${frames.length}`);
@@ -145,7 +175,7 @@ async function runTest(){
   $('baseCount').textContent=baseTotal;$('worldCount').textContent=worldTotal;
   $('baseTime').textContent=(baseTimes.reduce((a,b)=>a+b,0)/baseTimes.length).toFixed(0)+' ms';
   $('worldTime').textContent=(worldTimes.reduce((a,b)=>a+b,0)/worldTimes.length).toFixed(0)+' ms';
-  say('Vergleich abgeschlossen. Bitte prüfe die Bildüberlagerungen: Blau = CourtSide, Orange = YOLO-World. Die Trefferzahl allein sagt noch nicht, welches Modell den echten Schläger gefunden hat.');
+  $('diagnostics').textContent='CourtSide: '+baseDiagnostics[0].output+' · '+baseDiagnostics[0].format+' · max. Schläger-Score '+baseDiagnostics[0].maxRacketScore.toFixed(4)+' · Kandidaten '+baseDiagnostics[0].rawRacketCandidates+' → '+baseDiagnostics[0].afterThreshold+' nach Schwelle → '+baseDiagnostics[0].afterNms+' nach NMS\\nYOLO-World: '+worldDiagnostics[0].output+' · max. Score '+worldDiagnostics[0].maxScore.toFixed(3)+' · Kandidaten '+worldDiagnostics[0].rawCandidates+' → '+worldDiagnostics[0].afterThreshold+' nach Schwelle → '+worldDiagnostics[0].afterNms+' nach NMS';\n  say('Vergleich abgeschlossen. Blau = CourtSide, Orange = YOLO-World. Schwellenwerte und Rohdiagnose stehen über den Bildern.');
  }catch(e){console.error(e);say('Test konnte nicht abgeschlossen werden: '+(e?.message||e)+'\\nBitte Screenshot dieser Meldung senden.');}
  finally{textFeatures?.dispose?.();base?.release?.();world?.release?.();busy=false;run.disabled=false;}
 }
