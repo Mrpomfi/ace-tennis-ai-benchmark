@@ -17,16 +17,20 @@ $('threshold').addEventListener('input',e=>$('thresholdValue').textContent=Numbe
 function say(s){status.textContent=s}
 function wait(ms){return new Promise(r=>setTimeout(r,ms))}
 async function seekVideo(t){
-  if(Math.abs(video.currentTime-t)<0.015 && video.readyState>=2)return;
+  if(Math.abs(video.currentTime-t)<0.015 && video.readyState>=2 && !video.seeking)return;
   await new Promise((resolve,reject)=>{
     let timer;
-    const cleanup=()=>{video.removeEventListener('seeked',done);video.removeEventListener('error',failed);clearTimeout(timer)};
-    const done=()=>{cleanup();resolve()};
-    const failed=()=>{cleanup();reject(new Error('Video-Frame konnte nicht angesprungen werden.'))};
-    video.addEventListener('seeked',done,{once:true});
+    let settled=false;
+    const cleanup=()=>{video.removeEventListener('seeked',check);video.removeEventListener('timeupdate',check);video.removeEventListener('error',failed);clearTimeout(timer)};
+    const finish=()=>{if(settled)return;settled=true;cleanup();requestAnimationFrame(()=>requestAnimationFrame(resolve));};
+    const check=()=>{if(!video.seeking && Math.abs(video.currentTime-t)<0.08 && video.readyState>=2)finish();};
+    const failed=()=>{if(settled)return;settled=true;cleanup();reject(new Error('Video-Frame konnte nicht angesprungen werden.'))};
+    video.addEventListener('seeked',check);
+    video.addEventListener('timeupdate',check);
     video.addEventListener('error',failed,{once:true});
-    timer=setTimeout(()=>{cleanup();reject(new Error('Zeitüberschreitung beim Lesen eines Video-Frames.'))},5000);
+    timer=setTimeout(()=>{if(!settled){settled=true;cleanup();reject(new Error('Zeitüberschreitung beim Lesen eines Video-Frames. Bitte Video erneut auswählen oder die Framezahl reduzieren.'))}},15000);
     video.currentTime=t;
+    check();
   });
 }
 async function extractFrames(count=24){
