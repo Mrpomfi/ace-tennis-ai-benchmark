@@ -104,15 +104,21 @@ function parseBase(out,meta,canvas,threshold){
   else throw Error('CourtSide-Ausgabeformat nicht unterstützt: '+d.join('×'));
   const channels=channelsFirst?a:b,count=channelsFirst?b:a;
   diag.format=channelsFirst?'YOLO raw [1, channels, candidates]':'YOLO raw [1, candidates, channels]';
+  const classMax=Array.from({length:channels-4},()=>0);
   for(let i=0;i<count;i++){
    const get=ch=>channelsFirst?v[ch*count+i]:v[i*channels+ch];
-   let best=-Infinity,cls=-1;for(let ch=4;ch<channels;ch++){const score=Number(get(ch));if(Number.isFinite(score)&&score>best){best=score;cls=ch-4;}}
+   let best=-Infinity,cls=-1;
+   for(let ch=4;ch<channels;ch++){
+    const score=Number(get(ch));
+    if(Number.isFinite(score)){classMax[ch-4]=Math.max(classMax[ch-4],score);if(score>best){best=score;cls=ch-4;}}
+   }
    if(cls!==0||!Number.isFinite(best))continue;
    diag.maxRacketScore=Math.max(diag.maxRacketScore,best);diag.rawRacketCandidates++;
    if(best<threshold)continue;
    const cx=Number(get(0)),cy=Number(get(1)),w=Number(get(2)),h=Number(get(3));
    const box=mapBox(cx-w/2,cy-h/2,cx+w/2,cy+h/2,best,meta,canvas);if(box)raw.push(box);
   }
+  diag.classMaxScores=classMax;
  }
  diag.afterThreshold=raw.length;const boxes=nms(raw,.45,100);diag.afterNms=boxes.length;
  return {boxes,diagnostic:diag};
@@ -218,7 +224,7 @@ async function runTest(){
   $('baseTime').textContent=(baseTimes.reduce((a,b)=>a+b,0)/baseTimes.length).toFixed(0)+' ms';
   $('cv1Time').textContent=(cv1Times.reduce((a,b)=>a+b,0)/cv1Times.length).toFixed(0)+' ms';
   $('worldTime').textContent=(worldTimes.reduce((a,b)=>a+b,0)/worldTimes.length).toFixed(0)+' ms';
-  $('diagnostics').textContent='CourtSide: '+baseDiagnostics[0].output+' · '+baseDiagnostics[0].format+' · max. Schläger-Score '+baseDiagnostics[0].maxRacketScore.toFixed(4)+' · Kandidaten '+baseDiagnostics[0].rawRacketCandidates+' → '+baseDiagnostics[0].afterThreshold+' nach Schwelle → '+baseDiagnostics[0].afterNms+' nach NMS\\nCourtSide CV v1: '+cv1Diagnostics[0].output+' · '+cv1Diagnostics[0].format+' · max. Schläger-Score '+cv1Diagnostics[0].maxRacketScore.toFixed(4)+' · Kandidaten '+cv1Diagnostics[0].rawRacketCandidates+' → '+cv1Diagnostics[0].afterThreshold+' nach Schwelle → '+cv1Diagnostics[0].afterNms+' nach NMS\\nYOLO-World: '+worldDiagnostics[0].output+' · Logits min/Ø/max '+worldDiagnostics[0].minLogit.toFixed(3)+'/'+worldDiagnostics[0].meanLogit.toFixed(3)+'/'+worldDiagnostics[0].maxLogit.toFixed(3)+' · max. Score nach Sigmoid '+worldDiagnostics[0].maxScore.toFixed(3)+' · Kandidaten '+worldDiagnostics[0].rawCandidates+' → '+worldDiagnostics[0].afterThreshold+' nach Schwelle → '+worldDiagnostics[0].afterNms+' nach NMS';
+  $('diagnostics').textContent='CourtSide: '+baseDiagnostics[0].output+' · '+baseDiagnostics[0].format+' · max. Schläger-Score '+baseDiagnostics[0].maxRacketScore.toFixed(4)+' · Kandidaten '+baseDiagnostics[0].rawRacketCandidates+' → '+baseDiagnostics[0].afterThreshold+' nach Schwelle → '+baseDiagnostics[0].afterNms+' nach NMS\\nCourtSide CV v1: '+cv1Diagnostics[0].output+' · '+cv1Diagnostics[0].format+' · max. Schläger-Score '+cv1Diagnostics[0].maxRacketScore.toFixed(4)+' · Kandidaten '+cv1Diagnostics[0].rawRacketCandidates+' → '+cv1Diagnostics[0].afterThreshold+' nach Schwelle → '+cv1Diagnostics[0].afterNms+' nach NMS · Klassen-Max '+(cv1Diagnostics[0].classMaxScores||[]).map((v,i)=>['racket','tennis_ball','bottom-dead-zone','court','left-doubles-alley','left-service-box','net','right-doubles-alley','right-service-box','top-dead-zone'][i]+' '+v.toFixed(3)).join(', ')+'\\nYOLO-World: '+worldDiagnostics[0].output+' · Logits min/Ø/max '+worldDiagnostics[0].minLogit.toFixed(3)+'/'+worldDiagnostics[0].meanLogit.toFixed(3)+'/'+worldDiagnostics[0].maxLogit.toFixed(3)+' · max. Score nach Sigmoid '+worldDiagnostics[0].maxScore.toFixed(3)+' · Kandidaten '+worldDiagnostics[0].rawCandidates+' → '+worldDiagnostics[0].afterThreshold+' nach Schwelle → '+worldDiagnostics[0].afterNms+' nach NMS';
   say('Vergleich abgeschlossen. Blau = CourtSide, Violett = CourtSide CV v1, Orange = YOLO-World. Schwellenwerte und Rohdiagnose stehen über den Bildern.');
  }catch(e){console.error('Benchmark-Fehler in Phase '+stage,e);const detail=String(e?.message||e||'Unbekannter Fehler');const stack=e?.stack?String(e.stack).split('\\n').slice(0,4).join('\\n'):'';say('Fehler in Phase: '+stage+'\\n'+detail+(stack?'\\n'+stack:'')+'\\nBitte Screenshot dieser Meldung senden.');}
  finally{textFeatures?.dispose?.();base?.release?.();cv1?.release?.();world?.release?.();busy=false;run.disabled=false;}
