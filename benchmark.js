@@ -90,7 +90,7 @@ function mapBox(x1,y1,x2,y2,score,meta,canvas){
  return{x:x/canvas.width,y:y/canvas.height,w:(r-x)/canvas.width,h:(b-y)/canvas.height,score};
 }
 function parseBase(out,meta,canvas,threshold){
- const name=Object.keys(out)[0],t=out[name],v=t.data,d=t.dims,raw=[],diag={output:name+' ['+d.join(' × ')+']',format:'unbekannt',maxRacketScore:0,rawRacketCandidates:0};
+ const name=Object.keys(out)[0],t=out[name],v=t.data,d=t.dims,raw=[],logitValues=[],diag={output:name+' ['+d.join(' × ')+']',format:'unbekannt',maxRacketScore:0,rawRacketCandidates:0};
  if(d.length!==3)throw Error('Unbekanntes CourtSide-Ausgabeformat: '+d.join('×'));
  const a=d[1],b=d[2];
  if(b===6){diag.format='NMS [1, detections, 6]';for(let i=0;i<a;i++){const j=i*6,score=Number(v[j+4]),cls=Math.round(Number(v[j+5]));if(cls!==0||!Number.isFinite(score)||score<=0)continue;diag.maxRacketScore=Math.max(diag.maxRacketScore,score);diag.rawRacketCandidates++;if(score>=threshold){const box=mapBox(v[j],v[j+1],v[j+2],v[j+3],score,meta,canvas);if(box)raw.push(box);}}}
