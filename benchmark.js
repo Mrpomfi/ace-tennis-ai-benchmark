@@ -108,7 +108,7 @@ function parseWorld(out,meta,canvas,threshold){
  const channels=channelsFirst?a:b,count=channelsFirst?b:a;
  for(let i=0;i<count;i++){
   const get=ch=>channelsFirst?v[ch*count+i]:v[i*channels+ch];
-  let score=0;for(let ch=4;ch<channels;ch++)score=Math.max(score,sigmoid(Number(get(ch))));
+  let score=0;for(let ch=4;ch<channels;ch++){const value=Number(get(ch));if(Number.isFinite(value))score=Math.max(score,value);}
   diag.maxScore=Math.max(diag.maxScore,score);if(score<threshold)continue;diag.rawCandidates++;
   const cx=Number(get(0)),cy=Number(get(1)),w=Number(get(2)),h=Number(get(3));
   const box=mapBox(cx-w/2,cy-h/2,cx+w/2,cy+h/2,score,meta,canvas);if(box)raw.push(box);
