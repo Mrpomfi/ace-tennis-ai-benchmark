@@ -90,7 +90,7 @@ function mapBox(x1,y1,x2,y2,score,meta,canvas){
  return{x:x/canvas.width,y:y/canvas.height,w:(r-x)/canvas.width,h:(b-y)/canvas.height,score};
 }
 function parseBase(out,meta,canvas,threshold){
- const name=Object.keys(out)[0],t=out[name],v=t.data,d=t.dims,raw=[],logitValues=[],diag={output:name+' ['+d.join(' × ')+']',format:'unbekannt',maxRacketScore:0,rawRacketCandidates:0};
+ const name=Object.keys(out)[0],t=out[name],v=t.data,d=t.dims,raw=[],diag={output:name+' ['+d.join(' × ')+']',format:'unbekannt',maxRacketScore:0,rawRacketCandidates:0};
  if(d.length!==3)throw Error('Unbekanntes CourtSide-Ausgabeformat: '+d.join('×'));
  const a=d[1],b=d[2];
  if(b===6){diag.format='NMS [1, detections, 6]';for(let i=0;i<a;i++){const j=i*6,score=Number(v[j+4]),cls=Math.round(Number(v[j+5]));if(cls!==0||!Number.isFinite(score)||score<=0)continue;diag.maxRacketScore=Math.max(diag.maxRacketScore,score);diag.rawRacketCandidates++;if(score>=threshold){const box=mapBox(v[j],v[j+1],v[j+2],v[j+3],score,meta,canvas);if(box)raw.push(box);}}}
@@ -112,7 +112,7 @@ function parseBase(out,meta,canvas,threshold){
    const box=mapBox(cx-w/2,cy-h/2,cx+w/2,cy+h/2,best,meta,canvas);if(box)raw.push(box);
   }
  }
- diag.logitSamples=logitValues.length;if(logitValues.length){let sum=0,min=Infinity,max=-Infinity;for(const value of logitValues){sum+=value;if(value<min)min=value;if(value>max)max=value;}diag.minLogit=min;diag.maxLogit=max;diag.meanLogit=sum/logitValues.length;}diag.afterThreshold=raw.length;const boxes=nms(raw,.45,100);diag.afterNms=boxes.length;
+ diag.afterThreshold=raw.length;const boxes=nms(raw,.45,100);diag.afterNms=boxes.length;
  return {boxes,diagnostic:diag};
 }
 function parseWorld(out,meta,canvas,threshold){
@@ -155,15 +155,16 @@ async function createClipFeatures(){
 }
 async function runTest(){
  if(busy)return;busy=true;run.disabled=true;progress.value=0;$('frames').innerHTML='';
- let base=null,world=null,textFeatures=null;
+ let base=null,world=null,textFeatures=null,stage='Video-Frames vorbereiten';
  try{
   say('Video-Frames werden vorbereitet …');frames=await extractFrames(24);
-  await loadOrt();
+  stage='ONNX Runtime initialisieren';await loadOrt();
   const baseThreshold=Number($('baseThreshold').value),worldThreshold=Number($('worldThreshold').value),baseTimes=[],worldTimes=[],baseResults=[],baseDiagnostics=[],worldDiagnostics=[];
   let baseTotal=0,worldTotal=0;
-  say('CourtSide-Modell wird geladen …');
+  stage='CourtSide-Modell laden';say('CourtSide-Modell wird geladen …');
   const baseBytes=await (await fetch(BASE)).arrayBuffer();
   base=await ort.InferenceSession.create(baseBytes,{executionProviders:['wasm'],graphOptimizationLevel:'all'});
+  stage='CourtSide-Inferenz';
   for(let i=0;i<frames.length;i++){
    const f=frames[i],meta=makeInput(f.canvas),t0=performance.now();
    if(base.inputNames.length!==1)throw Error('CourtSide erwartet einen einzelnen Bildeingang; gefunden: '+base.inputNames.join(', '));
@@ -175,15 +176,16 @@ async function runTest(){
    await wait(0);
   }
   base.release?.();base=null;
-  say('CourtSide abgeschlossen. YOLO-World wird geladen …');
+  stage='YOLO-World-Modell laden';say('CourtSide abgeschlossen. YOLO-World wird geladen …');
   const worldBytes=await (await fetch(WORLD)).arrayBuffer();
   world=await ort.InferenceSession.create(worldBytes,{executionProviders:['wasm'],graphOptimizationLevel:'all'});
   const requiredInputs=['images','txt_feats'];
   const missing=requiredInputs.filter(name=>!world.inputNames.includes(name));
   if(missing.length)throw Error('YOLO-World-Eingänge fehlen: '+missing.join(', ')+'. Gefunden: '+world.inputNames.join(', '));
   if(world.outputNames.length!==1)throw Error('Unerwartete YOLO-World-Ausgaben: '+world.outputNames.join(', '));
-  textFeatures=await createClipFeatures();
+  stage='CLIP-Textencoder laden und ausführen';textFeatures=await createClipFeatures();
   if(textFeatures.dims[1]!==2||textFeatures.dims[2]!==512)throw Error('CLIP-Textmerkmale haben eine unerwartete Form: '+textFeatures.dims.join('×'));
+  stage='YOLO-World-Inferenz';
   for(let i=0;i<frames.length;i++){
    const f=frames[i],meta=makeInput(f.canvas),t0=performance.now();
    const out=await world.run({images:meta.tensor,txt_feats:textFeatures});
@@ -198,7 +200,7 @@ async function runTest(){
   $('worldTime').textContent=(worldTimes.reduce((a,b)=>a+b,0)/worldTimes.length).toFixed(0)+' ms';
   $('diagnostics').textContent='CourtSide: '+baseDiagnostics[0].output+' · '+baseDiagnostics[0].format+' · max. Schläger-Score '+baseDiagnostics[0].maxRacketScore.toFixed(4)+' · Kandidaten '+baseDiagnostics[0].rawRacketCandidates+' → '+baseDiagnostics[0].afterThreshold+' nach Schwelle → '+baseDiagnostics[0].afterNms+' nach NMS\\nYOLO-World: '+worldDiagnostics[0].output+' · Logits min/Ø/max '+worldDiagnostics[0].minLogit.toFixed(3)+'/'+worldDiagnostics[0].meanLogit.toFixed(3)+'/'+worldDiagnostics[0].maxLogit.toFixed(3)+' · max. Score nach Sigmoid '+worldDiagnostics[0].maxScore.toFixed(3)+' · Kandidaten '+worldDiagnostics[0].rawCandidates+' → '+worldDiagnostics[0].afterThreshold+' nach Schwelle → '+worldDiagnostics[0].afterNms+' nach NMS';
   say('Vergleich abgeschlossen. Blau = CourtSide, Orange = YOLO-World. Schwellenwerte und Rohdiagnose stehen über den Bildern.');
- }catch(e){console.error(e);say('Test konnte nicht abgeschlossen werden: '+(e?.message||e)+'\\nBitte Screenshot dieser Meldung senden.');}
+ }catch(e){console.error('Benchmark-Fehler in Phase '+stage,e);const detail=String(e?.message||e||'Unbekannter Fehler');const stack=e?.stack?String(e.stack).split('\\n').slice(0,4).join('\\n'):'';say('Fehler in Phase: '+stage+'\\n'+detail+(stack?'\\n'+stack:'')+'\\nBitte Screenshot dieser Meldung senden.');}
  finally{textFeatures?.dispose?.();base?.release?.();world?.release?.();busy=false;run.disabled=false;}
 }
 function drawFrame(f,a,b,i){
