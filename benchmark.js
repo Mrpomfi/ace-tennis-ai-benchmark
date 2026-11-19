@@ -13,7 +13,8 @@ input.addEventListener('change',()=>{
   objectUrl=URL.createObjectURL(f);video.src=objectUrl;video.classList.remove('hidden');
   video.onloadedmetadata=()=>{$('videoInfo').textContent=`${f.name} · ${video.videoWidth}×${video.videoHeight} · ${video.duration.toFixed(2)} s`;run.disabled=false;};
 });
-$('baseThreshold').addEventListener('input',e=>$('baseThresholdValue').textContent=Number(e.target.value).toFixed(3).replace('.',','));\n$('worldThreshold').addEventListener('input',e=>$('worldThresholdValue').textContent=Number(e.target.value).toFixed(2).replace('.',','));
+$('baseThreshold').addEventListener('input',e=>$('baseThresholdValue').textContent=Number(e.target.value).toFixed(3).replace('.',','));
+$('worldThreshold').addEventListener('input',e=>$('worldThresholdValue').textContent=Number(e.target.value).toFixed(2).replace('.',','));
 function say(s){status.textContent=s}
 function wait(ms){return new Promise(r=>setTimeout(r,ms))}
 async function seekVideo(t){
@@ -148,7 +149,7 @@ async function runTest(){
    if(base.inputNames.length!==1)throw Error('CourtSide erwartet einen einzelnen Bildeingang; gefunden: '+base.inputNames.join(', '));
    const out=await base.run({[base.inputNames[0]]:meta.tensor});
    const parsed=parseBase(out,meta,f.canvas,baseThreshold);baseResults.push(parsed.boxes);baseDiagnostics.push(parsed.diagnostic);
-   baseTimes.push(performance.now()-t0);baseTotal+=boxes.length;
+   baseTimes.push(performance.now()-t0);baseTotal+=parsed.boxes.length;
    progress.value=Math.round((i+1)/(frames.length*2)*100);
    say(`CourtSide: Frame ${i+1}/${frames.length}`);
    await wait(0);
@@ -166,7 +167,7 @@ async function runTest(){
   for(let i=0;i<frames.length;i++){
    const f=frames[i],meta=makeInput(f.canvas),t0=performance.now();
    const out=await world.run({images:meta.tensor,txt_feats:textFeatures});
-   const boxes=parseWorld(out,meta,f.canvas,threshold);worldTimes.push(performance.now()-t0);worldTotal+=boxes.length;
+   const parsed=parseWorld(out,meta,f.canvas,worldThreshold),boxes=parsed.boxes;worldDiagnostics.push(parsed.diagnostic);worldTimes.push(performance.now()-t0);worldTotal+=boxes.length;
    drawFrame(f,baseResults[i],boxes,i);
    progress.value=50+Math.round((i+1)/(frames.length*2)*100);
    say(`YOLO-World: Frame ${i+1}/${frames.length} · CourtSide: ${baseResults[i].length} · YOLO-World: ${boxes.length}`);
