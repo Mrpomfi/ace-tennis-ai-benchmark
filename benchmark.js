@@ -18,7 +18,7 @@ input.addEventListener('change',()=>{
   video.removeAttribute('src');
   video.load();
   video.onloadedmetadata=()=>{
-    $('videoInfo').textContent=`${f.name} · `${video.videoWidth}×`${video.videoHeight} · `${video.duration.toFixed(2)} s`;
+    $('videoInfo').textContent=`${f.name} · ${video.videoWidth}×${video.videoHeight} · ${video.duration.toFixed(2)} s`;
     video.classList.remove('hidden');
     run.disabled=false;
     say('Video erfolgreich geladen. Der Vergleich kann gestartet werden.');
