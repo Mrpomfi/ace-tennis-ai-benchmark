@@ -112,11 +112,11 @@ function parseBase(out,meta,canvas,threshold){
    const box=mapBox(cx-w/2,cy-h/2,cx+w/2,cy+h/2,best,meta,canvas);if(box)raw.push(box);
   }
  }
- diag.meanLogit=diag.logitSamples?diag.meanLogit/diag.logitSamples:0;diag.afterThreshold=raw.length;const boxes=nms(raw,.45,100);diag.afterNms=boxes.length;
+ diag.logitSamples=logitValues.length;if(logitValues.length){let sum=0,min=Infinity,max=-Infinity;for(const value of logitValues){sum+=value;if(value<min)min=value;if(value>max)max=value;}diag.minLogit=min;diag.maxLogit=max;diag.meanLogit=sum/logitValues.length;}diag.afterThreshold=raw.length;const boxes=nms(raw,.45,100);diag.afterNms=boxes.length;
  return {boxes,diagnostic:diag};
 }
 function parseWorld(out,meta,canvas,threshold){
- const name=Object.keys(out)[0],t=out[name],v=t.data,d=t.dims,raw=[],diag={output:name+' ['+d.join(' × ')+']',format:'raw YOLO-World',maxScore:0,minLogit:Infinity,maxLogit:-Infinity,meanLogit:0,logitSamples:0,rawCandidates:0};
+ const name=Object.keys(out)[0],t=out[name],v=t.data,d=t.dims,raw=[],logitValues=[],diag={output:name+' ['+d.join(' × ')+']',format:'raw YOLO-World',maxScore:0,minLogit:0,maxLogit:0,meanLogit:0,logitSamples:0,rawCandidates:0};
  if(d.length!==3)throw Error('Unbekanntes YOLO-World-Ausgabeformat: '+d.join('×'));
  const a=d[1],b=d[2];
  let channelsFirst;
@@ -128,7 +128,7 @@ function parseWorld(out,meta,canvas,threshold){
   const get=ch=>channelsFirst?v[ch*count+i]:v[i*channels+ch];
   let logit=-Infinity;for(let ch=4;ch<channels;ch++){const value=Number(get(ch));if(Number.isFinite(value))logit=Math.max(logit,value);}
   if(!Number.isFinite(logit))continue;
-  diag.minLogit=Math.min(diag.minLogit,logit);diag.maxLogit=Math.max(diag.maxLogit,logit);diag.meanLogit+=logit;diag.logitSamples++;
+  logitValues.push(logit);
   const score=sigmoid(logit);
   diag.maxScore=Math.max(diag.maxScore,score);if(score<threshold)continue;diag.rawCandidates++;
   const cx=Number(get(0)),cy=Number(get(1)),w=Number(get(2)),h=Number(get(3));
