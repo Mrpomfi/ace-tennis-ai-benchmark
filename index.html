@@ -10,7 +10,7 @@
 <body>
 <p class="muted">ACE TENNIS AI · EXPERIMENTELLER TESTZWEIG</p>
 <h1>Schläger-Modellvergleich</h1>
-<p class="muted">Vergleicht CourtSide YOLOv11n mit YOLO-World v2 Small auf denselben Bildern. Die Videoauswertung bleibt lokal in diesem Browser. Modellgewichte werden beim ersten Start von den angegebenen Modellservern geladen.</p>
+<p class="muted">Vergleicht drei Schlägermodelle auf denselben 24 Videobildern: CourtSide YOLOv11n, CourtSide Computer Vision v1 und YOLO-World v2 Small. Die Videoauswertung bleibt lokal in diesem Browser. Modellgewichte werden beim ersten Start von den angegebenen Modellservern geladen.</p>
 <section class="card">
 <h2>1 · Video auswählen</h2>
 <label for="videoFile">Dein Vorhandvideo</label><input id="videoFile" type="file" accept="video/*">
@@ -23,6 +23,9 @@
 <label for="baseThreshold">CourtSide – Mindest-Konfidenz: <span id="baseThresholdValue">0,005</span></label>
 <input id="baseThreshold" type="range" min=".001" max=".20" step=".001" value=".005" style="width:100%">
 <p class="small">Niedrige Schwellen sind hier absichtlich erlaubt: Die Haupt-App berücksichtigt beim Schlägermodell auch sehr schwache Rohscores und prüft sie anschließend räumlich.</p>
+<label for="cv1Threshold">CourtSide CV v1 – Mindest-Konfidenz: <span id="cv1ThresholdValue">0,25</span></label>
+<input id="cv1Threshold" type="range" min=".05" max=".90" step=".05" value=".25" style="width:100%">
+<p class="small">Eigenständig auf Tennisschläger, Bälle und Spielfeldbereiche trainiertes YOLOv11-Modell. Die Gewichte werden beim Seitenaufbau in ONNX umgewandelt und anschließend lokal im Browser ausgeführt.</p>
 <label for="worldThreshold">YOLO-World – Mindest-Konfidenz: <span id="worldThresholdValue">0,35</span></label>
 <input id="worldThreshold" type="range" min=".10" max=".90" step=".05" value=".35" style="width:100%">
 <button id="run" disabled>Beide Modelle vergleichen</button>
@@ -33,8 +36,10 @@
 <h2>3 · Ergebnis</h2>
 <div class="grid">
 <div class="metric"><span class="small">CourtSide Treffer</span><b id="baseCount">–</b></div>
+<div class="metric"><span class="small">CourtSide CV v1 Treffer</span><b id="cv1Count">–</b></div>
 <div class="metric"><span class="small">YOLO-World Treffer</span><b id="worldCount">–</b></div>
 <div class="metric"><span class="small">CourtSide Ø Zeit/Frame</span><b id="baseTime">–</b></div>
+<div class="metric"><span class="small">CourtSide CV v1 Ø Zeit/Frame</span><b id="cv1Time">–</b></div>
 <div class="metric"><span class="small">YOLO-World Ø Zeit/Frame</span><b id="worldTime">–</b></div>
 </div>
 <p class="small">Trefferzahlen sind Rohdetektionen nach Konfidenzfilter und NMS, keine Precision-/Recall-Werte. Dafür müssen die tatsächlichen Schlägerpositionen der Frames manuell als Referenz markiert werden.</p>
@@ -47,5 +52,5 @@
 <p class="small warn">Hinweis: Der CLIP-Textencoder und YOLO-World benötigen zusätzlichen Arbeitsspeicher. Falls Safari die Seite beendet oder neu lädt, bitte nicht wiederholt erzwingen; dann reduzieren wir die Framezahl oder testen zunächst auf einem Rechner.</p>
 </section>
 <script src="https://cdn.jsdelivr.net/gh/Mrpomfi/ace-tennis-ai@main/vendor/onnxruntime-web/ort.wasm.min.js"></script>
-<script src="./benchmark.js?v=logit-fix-20261119-1" type="module"></script>
+<script src="./benchmark.js?v=three-models-cv1-20261119-1" type="module"></script>
 </body></html>
