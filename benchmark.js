@@ -112,11 +112,11 @@ function parseBase(out,meta,canvas,threshold){
    const box=mapBox(cx-w/2,cy-h/2,cx+w/2,cy+h/2,best,meta,canvas);if(box)raw.push(box);
   }
  }
- diag.afterThreshold=raw.length;const boxes=nms(raw,.45,100);diag.afterNms=boxes.length;
+ diag.meanLogit=diag.logitSamples?diag.meanLogit/diag.logitSamples:0;diag.afterThreshold=raw.length;const boxes=nms(raw,.45,100);diag.afterNms=boxes.length;
  return {boxes,diagnostic:diag};
 }
 function parseWorld(out,meta,canvas,threshold){
- const name=Object.keys(out)[0],t=out[name],v=t.data,d=t.dims,raw=[],diag={output:name+' ['+d.join(' × ')+']',format:'raw YOLO-World',maxScore:0,rawCandidates:0};
+ const name=Object.keys(out)[0],t=out[name],v=t.data,d=t.dims,raw=[],diag={output:name+' ['+d.join(' × ')+']',format:'raw YOLO-World',maxScore:0,minLogit:Infinity,maxLogit:-Infinity,meanLogit:0,logitSamples:0,rawCandidates:0};
  if(d.length!==3)throw Error('Unbekanntes YOLO-World-Ausgabeformat: '+d.join('×'));
  const a=d[1],b=d[2];
  let channelsFirst;
@@ -128,6 +128,7 @@ function parseWorld(out,meta,canvas,threshold){
   const get=ch=>channelsFirst?v[ch*count+i]:v[i*channels+ch];
   let logit=-Infinity;for(let ch=4;ch<channels;ch++){const value=Number(get(ch));if(Number.isFinite(value))logit=Math.max(logit,value);}
   if(!Number.isFinite(logit))continue;
+  diag.minLogit=Math.min(diag.minLogit,logit);diag.maxLogit=Math.max(diag.maxLogit,logit);diag.meanLogit+=logit;diag.logitSamples++;
   const score=sigmoid(logit);
   diag.maxScore=Math.max(diag.maxScore,score);if(score<threshold)continue;diag.rawCandidates++;
   const cx=Number(get(0)),cy=Number(get(1)),w=Number(get(2)),h=Number(get(3));
@@ -195,7 +196,7 @@ async function runTest(){
   $('baseCount').textContent=baseTotal;$('worldCount').textContent=worldTotal;
   $('baseTime').textContent=(baseTimes.reduce((a,b)=>a+b,0)/baseTimes.length).toFixed(0)+' ms';
   $('worldTime').textContent=(worldTimes.reduce((a,b)=>a+b,0)/worldTimes.length).toFixed(0)+' ms';
-  $('diagnostics').textContent='CourtSide: '+baseDiagnostics[0].output+' · '+baseDiagnostics[0].format+' · max. Schläger-Score '+baseDiagnostics[0].maxRacketScore.toFixed(4)+' · Kandidaten '+baseDiagnostics[0].rawRacketCandidates+' → '+baseDiagnostics[0].afterThreshold+' nach Schwelle → '+baseDiagnostics[0].afterNms+' nach NMS\\nYOLO-World: '+worldDiagnostics[0].output+' · max. Score nach Sigmoid '+worldDiagnostics[0].maxScore.toFixed(3)+' · Kandidaten '+worldDiagnostics[0].rawCandidates+' → '+worldDiagnostics[0].afterThreshold+' nach Schwelle → '+worldDiagnostics[0].afterNms+' nach NMS';
+  $('diagnostics').textContent='CourtSide: '+baseDiagnostics[0].output+' · '+baseDiagnostics[0].format+' · max. Schläger-Score '+baseDiagnostics[0].maxRacketScore.toFixed(4)+' · Kandidaten '+baseDiagnostics[0].rawRacketCandidates+' → '+baseDiagnostics[0].afterThreshold+' nach Schwelle → '+baseDiagnostics[0].afterNms+' nach NMS\\nYOLO-World: '+worldDiagnostics[0].output+' · Logits min/Ø/max '+worldDiagnostics[0].minLogit.toFixed(3)+'/'+worldDiagnostics[0].meanLogit.toFixed(3)+'/'+worldDiagnostics[0].maxLogit.toFixed(3)+' · max. Score nach Sigmoid '+worldDiagnostics[0].maxScore.toFixed(3)+' · Kandidaten '+worldDiagnostics[0].rawCandidates+' → '+worldDiagnostics[0].afterThreshold+' nach Schwelle → '+worldDiagnostics[0].afterNms+' nach NMS';
   say('Vergleich abgeschlossen. Blau = CourtSide, Orange = YOLO-World. Schwellenwerte und Rohdiagnose stehen über den Bildern.');
  }catch(e){console.error(e);say('Test konnte nicht abgeschlossen werden: '+(e?.message||e)+'\\nBitte Screenshot dieser Meldung senden.');}
  finally{textFeatures?.dispose?.();base?.release?.();world?.release?.();busy=false;run.disabled=false;}
