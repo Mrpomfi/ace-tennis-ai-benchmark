@@ -5,6 +5,7 @@ const video=$('video'), input=$('videoFile'), run=$('run'), status=$('status'), 
 let objectUrl=null, frames=[], busy=false;
 const BASE='https://raw.githubusercontent.com/Mrpomfi/ace-tennis-ai/main/models/courtside-yolov11n.onnx';
 const WORLD='https://huggingface.co/Instemic/yolo-world-onnx/resolve/main/yolov8s-worldv2.onnx';
+const COURTSIDE_V1='./courtside-cv-v1.onnx';
 const CLIP_MODEL='Xenova/clip-vit-base-patch32';
 
 input.addEventListener('change',()=>{
@@ -32,6 +33,7 @@ input.addEventListener('change',()=>{
 });
 $('baseThreshold').addEventListener('input',e=>$('baseThresholdValue').textContent=Number(e.target.value).toFixed(3).replace('.',','));
 $('worldThreshold').addEventListener('input',e=>$('worldThresholdValue').textContent=Number(e.target.value).toFixed(2).replace('.',','));
+$('cv1Threshold').addEventListener('input',e=>$('cv1ThresholdValue').textContent=Number(e.target.value).toFixed(2).replace('.',','));
 function say(s){status.textContent=s}
 function wait(ms){return new Promise(r=>setTimeout(r,ms))}
 async function seekVideo(t){
@@ -155,12 +157,12 @@ async function createClipFeatures(){
 }
 async function runTest(){
  if(busy)return;busy=true;run.disabled=true;progress.value=0;$('frames').innerHTML='';
- let base=null,world=null,textFeatures=null,stage='Video-Frames vorbereiten';
+ let base=null,cv1=null,world=null,textFeatures=null,stage='Video-Frames vorbereiten';
  try{
   say('Video-Frames werden vorbereitet …');frames=await extractFrames(24);
   stage='ONNX Runtime initialisieren';await loadOrt();
-  const baseThreshold=Number($('baseThreshold').value),worldThreshold=Number($('worldThreshold').value),baseTimes=[],worldTimes=[],baseResults=[],baseDiagnostics=[],worldDiagnostics=[];
-  let baseTotal=0,worldTotal=0;
+  const baseThreshold=Number($('baseThreshold').value),cv1Threshold=Number($('cv1Threshold').value),worldThreshold=Number($('worldThreshold').value),baseTimes=[],cv1Times=[],worldTimes=[],baseResults=[],cv1Results=[],baseDiagnostics=[],cv1Diagnostics=[],worldDiagnostics=[];
+  let baseTotal=0,cv1Total=0,worldTotal=0;
   stage='CourtSide-Modell laden';say('CourtSide-Modell wird geladen …');
   const baseBytes=await (await fetch(BASE)).arrayBuffer();
   base=await ort.InferenceSession.create(baseBytes,{executionProviders:['wasm'],graphOptimizationLevel:'all'});
@@ -171,12 +173,29 @@ async function runTest(){
    const out=await base.run({[base.inputNames[0]]:meta.tensor});
    const parsed=parseBase(out,meta,f.canvas,baseThreshold);baseResults.push(parsed.boxes);baseDiagnostics.push(parsed.diagnostic);
    baseTimes.push(performance.now()-t0);baseTotal+=parsed.boxes.length;
-   progress.value=Math.round((i+1)/(frames.length*2)*100);
+   progress.value=Math.round((i+1)/(frames.length*3)*100);
    say(`CourtSide: Frame ${i+1}/${frames.length}`);
    await wait(0);
   }
   base.release?.();base=null;
-  stage='YOLO-World-Modell laden';say('CourtSide abgeschlossen. YOLO-World wird geladen …');
+  stage='CourtSide CV v1 Modell laden';say('CourtSide abgeschlossen. CourtSide CV v1 wird geladen …');
+  const cv1Response=await fetch(COURTSIDE_V1);
+  if(!cv1Response.ok)throw Error('CourtSide CV v1 ONNX-Datei konnte nicht geladen werden (HTTP '+cv1Response.status+'). Bitte GitHub-Pages-Bereitstellung prüfen.');
+  cv1=await ort.InferenceSession.create(await cv1Response.arrayBuffer(),{executionProviders:['wasm'],graphOptimizationLevel:'all'});
+  if(cv1.inputNames.length!==1)throw Error('CourtSide CV v1 erwartet einen einzelnen Bildeingang; gefunden: '+cv1.inputNames.join(', '));
+  stage='CourtSide CV v1 Inferenz';
+  for(let i=0;i<frames.length;i++){
+   const f=frames[i],meta=makeInput(f.canvas),t0=performance.now();
+   const out=await cv1.run({[cv1.inputNames[0]]:meta.tensor});
+   const parsed=parseBase(out,meta,f.canvas,cv1Threshold);
+   cv1Results.push(parsed.boxes);cv1Diagnostics.push(parsed.diagnostic);
+   cv1Times.push(performance.now()-t0);cv1Total+=parsed.boxes.length;
+   progress.value=33+Math.round((i+1)/(frames.length*3)*100);
+   say(`CourtSide CV v1: Frame ${i+1}/${frames.length}`);
+   await wait(0);
+  }
+  cv1.release?.();cv1=null;
+  stage='YOLO-World-Modell laden';say('CourtSide CV v1 abgeschlossen. YOLO-World wird geladen …');
   const worldBytes=await (await fetch(WORLD)).arrayBuffer();
   world=await ort.InferenceSession.create(worldBytes,{executionProviders:['wasm'],graphOptimizationLevel:'all'});
   const requiredInputs=['images','txt_feats'];
@@ -190,22 +209,23 @@ async function runTest(){
    const f=frames[i],meta=makeInput(f.canvas),t0=performance.now();
    const out=await world.run({images:meta.tensor,txt_feats:textFeatures});
    const parsed=parseWorld(out,meta,f.canvas,worldThreshold),boxes=parsed.boxes;worldDiagnostics.push(parsed.diagnostic);worldTimes.push(performance.now()-t0);worldTotal+=boxes.length;
-   drawFrame(f,baseResults[i],boxes,i);
-   progress.value=50+Math.round((i+1)/(frames.length*2)*100);
+   drawFrame(f,baseResults[i],boxes,cv1Results[i],i);
+   progress.value=66+Math.round((i+1)/(frames.length*3)*100);
    say(`YOLO-World: Frame ${i+1}/${frames.length} · CourtSide: ${baseResults[i].length} · YOLO-World: ${boxes.length}`);
    await wait(0);
   }
-  $('baseCount').textContent=baseTotal;$('worldCount').textContent=worldTotal;
+  $('baseCount').textContent=baseTotal;$('cv1Count').textContent=cv1Total;$('worldCount').textContent=worldTotal;
   $('baseTime').textContent=(baseTimes.reduce((a,b)=>a+b,0)/baseTimes.length).toFixed(0)+' ms';
+  $('cv1Time').textContent=(cv1Times.reduce((a,b)=>a+b,0)/cv1Times.length).toFixed(0)+' ms';
   $('worldTime').textContent=(worldTimes.reduce((a,b)=>a+b,0)/worldTimes.length).toFixed(0)+' ms';
   $('diagnostics').textContent='CourtSide: '+baseDiagnostics[0].output+' · '+baseDiagnostics[0].format+' · max. Schläger-Score '+baseDiagnostics[0].maxRacketScore.toFixed(4)+' · Kandidaten '+baseDiagnostics[0].rawRacketCandidates+' → '+baseDiagnostics[0].afterThreshold+' nach Schwelle → '+baseDiagnostics[0].afterNms+' nach NMS\\nYOLO-World: '+worldDiagnostics[0].output+' · Logits min/Ø/max '+worldDiagnostics[0].minLogit.toFixed(3)+'/'+worldDiagnostics[0].meanLogit.toFixed(3)+'/'+worldDiagnostics[0].maxLogit.toFixed(3)+' · max. Score nach Sigmoid '+worldDiagnostics[0].maxScore.toFixed(3)+' · Kandidaten '+worldDiagnostics[0].rawCandidates+' → '+worldDiagnostics[0].afterThreshold+' nach Schwelle → '+worldDiagnostics[0].afterNms+' nach NMS';
-  say('Vergleich abgeschlossen. Blau = CourtSide, Orange = YOLO-World. Schwellenwerte und Rohdiagnose stehen über den Bildern.');
+  say('Vergleich abgeschlossen. Blau = CourtSide, Violett = CourtSide CV v1, Orange = YOLO-World. Schwellenwerte und Rohdiagnose stehen über den Bildern.');
  }catch(e){console.error('Benchmark-Fehler in Phase '+stage,e);const detail=String(e?.message||e||'Unbekannter Fehler');const stack=e?.stack?String(e.stack).split('\\n').slice(0,4).join('\\n'):'';say('Fehler in Phase: '+stage+'\\n'+detail+(stack?'\\n'+stack:'')+'\\nBitte Screenshot dieser Meldung senden.');}
- finally{textFeatures?.dispose?.();base?.release?.();world?.release?.();busy=false;run.disabled=false;}
+ finally{textFeatures?.dispose?.();base?.release?.();cv1?.release?.();world?.release?.();busy=false;run.disabled=false;}
 }
-function drawFrame(f,a,b,i){
+function drawFrame(f,a,b,candidates,i){
  const c=document.createElement('canvas');c.width=480;c.height=Math.round(480*f.canvas.height/f.canvas.width);const x=c.getContext('2d');x.drawImage(f.canvas,0,0,c.width,c.height);
  function boxes(arr,color){x.strokeStyle=color;x.lineWidth=3;for(const z of arr){x.strokeRect(z.x*c.width,z.y*c.height,z.w*c.width,z.h*c.height);x.fillStyle=color;x.font='12px sans-serif';x.fillText(z.score.toFixed(2),z.x*c.width,Math.max(12,z.y*c.height-3));}}
- boxes(a,'#38a4ff');boxes(b,'#ff9c42');c.title='Frame '+(i+1)+' · '+f.time.toFixed(2)+' s';$('frames').append(c);
+ boxes(a,'#38a4ff');boxes(candidates,'#d58bff');boxes(b,'#ff9c42');c.title='Frame '+(i+1)+' · '+f.time.toFixed(2)+' s';$('frames').append(c);
 }
 run.addEventListener('click',runTest);
